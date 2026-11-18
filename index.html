@@ -1,1 +1,498 @@
 # A3A
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A3A Arcade</title>
+<style>
+:root{
+  --bg:#090b16;--panel:#14182a;--cyan:#42e8ff;
+  --pink:#ff55bd;--yellow:#ffe16a;--green:#62f5a5;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;color:#f5f6ff;
+  font-family:Arial,Helvetica,sans-serif;
+  background:radial-gradient(ellipse at top,#20264b,#090b16 65%);
+}
+header{
+  padding:22px 5%;display:flex;justify-content:space-between;
+  align-items:center;border-bottom:1px solid #ffffff15;
+}
+.logo{font-size:32px;font-weight:1000;letter-spacing:5px;color:var(--cyan);text-shadow:0 0 18px #42e8ff77}
+header span{color:#9ba4c5;font-size:13px}
+main{max-width:1150px;margin:auto;padding:25px 20px 50px}
+.hero{margin-bottom:22px}
+.hero h1{font-size:clamp(26px,4vw,42px);margin:0 0 7px}
+.hero p{margin:0;color:#9ba4c5}
+.games{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+.game-card{
+  cursor:pointer;background:linear-gradient(145deg,#202743,#111527);
+  border:1px solid #ffffff1c;border-radius:18px;padding:22px 12px;
+  text-align:center;transition:.2s;
+}
+.game-card:hover{transform:translateY(-4px);border-color:var(--cyan);box-shadow:0 8px 30px #42e8ff20}
+.game-icon{font-size:44px;margin-bottom:10px}
+.game-card h3{margin:0;font-size:16px}
+.game-card p{font-size:12px;color:#9ba4c5;margin:7px 0 0}
+#gameScreen{display:none;margin-top:24px}
+.game-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.game-top h2{margin:0;font-size:22px}
+button{border:0;border-radius:10px;padding:11px 16px;font-weight:bold;cursor:pointer;background:var(--cyan);color:#07101c}
+.secondary{background:#1c2238;color:white;border:1px solid #ffffff20}
+.game-panel{background:linear-gradient(145deg,#171d33,#101426);border:1px solid #ffffff1c;border-radius:18px;padding:15px}
+canvas{display:block;width:100%;height:auto;margin:auto;border-radius:12px;background:#080d1b;touch-action:none}
+.scoreline{text-align:center;margin:10px 0;color:var(--yellow);font-weight:bold}
+.instructions{color:#9ba4c5;font-size:13px;text-align:center;margin:12px 0 2px}
+#leaderboard{margin-top:25px;background:var(--panel);border:1px solid #ffffff15;border-radius:16px;padding:18px}
+#leaderboard h2{margin:0 0 12px;font-size:18px}
+.record{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #ffffff10;color:#9ba4c5;font-size:13px}
+.record:last-child{border:0}
+@media(max-width:600px){
+  header{padding:17px}
+  .logo{font-size:26px}
+  main{padding:20px 12px}
+  .games{gap:10px}
+  .game-card{padding:16px 8px}
+  .game-icon{font-size:36px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">A3A</div>
+  <span>YOUR ARCADE. YOUR RECORDS.</span>
+</header>
+
+<main>
+<section class="hero">
+  <h1>Choose your game.</h1>
+  <p>Three games. Beat your best score.</p>
+</section>
+
+<section class="games" id="games">
+  <div class="game-card" onclick="startGame('ping')">
+    <div class="game-icon">🏓</div>
+    <h3>Ping Pong</h3>
+    <p>Keep the rally going</p>
+  </div>
+
+  <div class="game-card" onclick="startGame('slime')">
+    <div class="game-icon">🟢</div>
+    <h3>Slime Studio</h3>
+    <p>Stretch, squish, pull and play</p>
+  </div>
+
+  <div class="game-card" onclick="startGame('brick')">
+    <div class="game-icon">🧱</div>
+    <h3>Brick Breaker</h3>
+    <p>Break every brick</p>
+  </div>
+</section>
+
+<section id="gameScreen">
+  <div class="game-top">
+    <h2 id="gameTitle"></h2>
+    <button class="secondary" onclick="goHome()">← Back</button>
+  </div>
+
+  <div class="game-panel">
+    <div class="scoreline" id="scoreLine">Score: 0</div>
+    <canvas id="gameCanvas" width="900" height="520"></canvas>
+    <p class="instructions" id="instructions"></p>
+    <div style="text-align:center;margin-top:12px">
+      <button class="secondary" onclick="restartGame()">Restart</button>
+    </div>
+  </div>
+</section>
+
+<section id="leaderboard">
+  <h2>🏆 Personal bests</h2>
+  <div id="records"></div>
+</section>
+</main>
+
+<script>
+const canvas=document.getElementById("gameCanvas");
+const ctx=canvas.getContext("2d");
+const screen=document.getElementById("gameScreen");
+const games=document.getElementById("games");
+const title=document.getElementById("gameTitle");
+const instructions=document.getElementById("instructions");
+const scoreLine=document.getElementById("scoreLine");
+
+let current="",score=0,best={},raf=0,lastTime=0;
+let pointer={x:450,y:260,down:false};
+let state={};
+
+try{best=JSON.parse(localStorage.getItem("a3a-best")||"{}")}catch(e){best={}}
+
+function saveBest(name,value){
+  if(value>(best[name]||0)){
+    best[name]=value;
+    try{localStorage.setItem("a3a-best",JSON.stringify(best))}catch(e){}
+    renderRecords();
+  }
+}
+function renderRecords(){
+  const names={ping:"Ping Pong",slime:"Slime Studio",brick:"Brick Breaker"};
+  document.getElementById("records").innerHTML=
+    Object.keys(names).map(k=>`<div class="record"><span>${names[k]}</span><strong>${best[k]||0}</strong></div>`).join("");
+}
+renderRecords();
+
+function stopLoop(){
+  if(raf)cancelAnimationFrame(raf);
+  raf=0;
+}
+function goHome(){
+  stopLoop();
+  current="";
+  pointer.down=false;
+  screen.style.display="none";
+  games.style.display="grid";
+  ctx.clearRect(0,0,900,520);
+}
+function startGame(name){
+  stopLoop();
+  current=name;
+  score=0;
+  pointer.down=false;
+  state={};
+  games.style.display="none";
+  screen.style.display="block";
+
+  const names={ping:"Ping Pong",slime:"Slime Studio",brick:"Brick Breaker"};
+  title.textContent=names[name];
+
+  const help={
+    ping:"Move your pointer up and down to control your paddle.",
+    slime:"Grab anywhere on the slime. Pull, stretch, twist and release. It bounces and jiggles back!",
+    brick:"Move your pointer to control the paddle. Keep the ball alive and break bricks."
+  };
+  instructions.textContent=help[name];
+
+  initialiseGame();
+  updateScore();
+  lastTime=performance.now();
+  raf=requestAnimationFrame(loop);
+}
+function restartGame(){if(current)startGame(current)}
+function updateScore(){scoreLine.textContent="Score: "+score}
+function addScore(amount=1){
+  score+=amount;updateScore();saveBest(current,score);
+}
+function loop(time){
+  if(!current)return;
+  const dt=Math.min((time-lastTime)/1000,.04);
+  lastTime=time;
+  updateGame(dt);
+  drawGame();
+  raf=requestAnimationFrame(loop);
+}
+function initialiseGame(){
+  ctx.clearRect(0,0,900,520);
+  if(current==="ping"){
+    state={ball:{x:450,y:260,vx:280,vy:170,r:9},paddle:260,ai:260};
+  }
+  if(current==="slime"){
+    state={
+      cx:450,cy:270,
+      grab:false,
+      grabOrigin:null,
+      grabAngle:0,
+      pullX:0,pullY:0,
+      stretch:0,
+      velocityX:0,velocityY:0,
+      wobble:0,
+      squish:1,
+      sparkles:[],
+      particles:[]
+    };
+  }
+  if(current==="brick"){
+    const bricks=[];
+    for(let r=0;r<5;r++)for(let c=0;c<10;c++)
+      bricks.push({x:65+c*78,y:65+r*30,w:65,h:20,alive:true});
+    state={ball:{x:450,y:390,vx:220,vy:-250,r:8},paddle:450,bricks};
+  }
+}
+function updateGame(dt){
+  if(current==="ping")updatePing(dt);
+  if(current==="slime")updateSlime(dt);
+  if(current==="brick")updateBrick(dt);
+}
+function drawGame(){
+  ctx.clearRect(0,0,900,520);
+  if(current==="ping")drawPing();
+  if(current==="slime")drawSlime();
+  if(current==="brick")drawBrick();
+}
+
+/* PING PONG */
+function updatePing(dt){
+  const s=state,b=s.ball;
+  b.x+=b.vx*dt;b.y+=b.vy*dt;
+  if(b.y<12||b.y>508)b.vy*=-1;
+  s.ai+=(b.y-s.ai)*Math.min(dt*3,1);
+  if(b.x<75&&Math.abs(b.y-s.paddle)<65&&b.vx<0){
+    b.vx=Math.abs(b.vx)*1.06;
+    b.vy+=(b.y-s.paddle)*2;
+    addScore();
+  }
+  if(b.x>825&&Math.abs(b.y-s.ai)<65&&b.vx>0)b.vx=-Math.abs(b.vx);
+  if(b.x<0||b.x>900){
+    b.x=450;b.y=260;b.vx=260*(Math.random()>.5?1:-1);b.vy=170;
+  }
+}
+function drawPing(){
+  ctx.fillStyle="#42e8ff";ctx.fillRect(45,state.paddle-55,13,110);
+  ctx.fillStyle="#ff55bd";ctx.fillRect(842,state.ai-55,13,110);
+  ctx.setLineDash([8,12]);ctx.strokeStyle="#ffffff55";
+  ctx.beginPath();ctx.moveTo(450,0);ctx.lineTo(450,520);ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle="#ffe16a";
+  ctx.beginPath();ctx.arc(state.ball.x,state.ball.y,9,0,Math.PI*2);ctx.fill();
+}
+
+/* SLIME STUDIO — IMPROVED PHYSICS */
+function updateSlime(dt){
+  const s=state;
+
+  if(!s.grab){
+    // Spring force brings slime back naturally
+    const spring=11;
+    const damping=5.2;
+
+    s.velocityX+=(-s.pullX*spring-s.velocityX*damping)*dt;
+    s.velocityY+=(-s.pullY*spring-s.velocityY*damping)*dt;
+
+    s.pullX+=s.velocityX*dt;
+    s.pullY+=s.velocityY*dt;
+
+    // Shape relaxes gradually
+    s.stretch*=Math.pow(.90,dt*60);
+    s.squish+=(1-s.squish)*Math.min(1,dt*5);
+    s.wobble+=dt*7;
+
+    // Extra jelly wobble
+    s.pullX+=Math.sin(s.wobble)*s.stretch*.0008;
+    s.pullY+=Math.cos(s.wobble*1.3)*s.stretch*.0008;
+  }else{
+    s.wobble+=dt*12;
+  }
+
+  // Little slime particles when stretched
+  if(!s.grab&&s.stretch>12&&Math.random()<dt*4){
+    s.particles.push({
+      x:s.cx+s.pullX+Math.random()*90-45,
+      y:s.cy+s.pullY+Math.random()*90-45,
+      life:1
+    });
+  }
+
+  s.particles.forEach(p=>p.life-=dt*1.4);
+  s.particles=s.particles.filter(p=>p.life>0);
+}
+
+function drawSlime(){
+  const s=state;
+  const centerX=s.cx+s.pullX;
+  const centerY=s.cy+s.pullY;
+
+  ctx.fillStyle="#10172b";
+  ctx.fillRect(0,0,900,520);
+
+  // Background decorative dots
+  ctx.fillStyle="#26304c";
+  for(let x=30;x<900;x+=40)for(let y=30;y<520;y+=40){
+    ctx.fillRect(x,y,2,2);
+  }
+
+  // Shadows
+  ctx.fillStyle="#06101a";
+  ctx.beginPath();
+  ctx.ellipse(centerX,centerY+130,135,28,0,0,Math.PI*2);
+  ctx.fill();
+
+  // Stretch direction and elastic body shape
+  const stretch=Math.min(s.stretch,240);
+  const pullAngle=s.grabAngle;
+  const elongation=1+stretch/190;
+
+  ctx.save();
+  ctx.translate(centerX,centerY);
+  ctx.rotate(pullAngle);
+  ctx.scale(elongation,1/Math.sqrt(elongation));
+
+  // Main blob shape with animated wobble
+  ctx.beginPath();
+  const baseRadius=105;
+  const steps=100;
+  for(let i=0;i<=steps;i++){
+    const a=i/steps*Math.PI*2;
+    const wobble=
+      Math.sin(a*3+s.wobble)*3+
+      Math.sin(a*6-s.wobble*1.3)*2+
+      Math.sin(a*2+s.wobble*.5)*2;
+    const r=baseRadius+wobble;
+    const x=Math.cos(a)*r;
+    const y=Math.sin(a)*r;
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+
+  const grad=ctx.createRadialGradient(-30,-45,10,0,0,150);
+  grad.addColorStop(0,"#c0ffc9");
+  grad.addColorStop(.25,"#83ffad");
+  grad.addColorStop(.65,"#39e78c");
+  grad.addColorStop(1,"#079565");
+
+  ctx.shadowColor="#42ffae";
+  ctx.shadowBlur=35;
+  ctx.fillStyle=grad;
+  ctx.fill();
+  ctx.shadowBlur=0;
+
+  // Glossy highlights
+  ctx.fillStyle="#ffffff55";
+  ctx.beginPath();
+  ctx.ellipse(-38,-47,38,16,-.5,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="#ffffff25";
+  ctx.beginPath();
+  ctx.ellipse(42,-25,20,8,.4,0,Math.PI*2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle="#073b2b";
+  ctx.beginPath();
+  ctx.ellipse(-25,-5,7,12,0,0,Math.PI*2);
+  ctx.ellipse(25,-5,7,12,0,0,Math.PI*2);
+  ctx.fill();
+
+  // Cute smile
+  ctx.strokeStyle="#075b3a";
+  ctx.lineWidth=4;
+  ctx.lineCap="round";
+  ctx.beginPath();
+  ctx.arc(0,15,18,.15,Math.PI-.15);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // Particles
+  for(const p of s.particles){
+    ctx.globalAlpha=p.life;
+    ctx.fillStyle="#80ffc0";
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,3+p.life*3,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // Grab indicator when holding
+  if(s.grab){
+    ctx.strokeStyle="#ffffff65";
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.arc(centerX,centerY,125+Math.sin(s.wobble)*3,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle="#d7ffe9";
+  ctx.font="16px Arial";
+  ctx.textAlign="center";
+  ctx.fillText(s.grab?"PULL IT ANYWHERE!":"GRAB THE SLIME!",450,465);
+  ctx.textAlign="left";
+}
+
+/* BRICK BREAKER */
+function updateBrick(dt){
+  const s=state,b=s.ball;
+  b.x+=b.vx*dt;b.y+=b.vy*dt;
+  if(b.x<8||b.x>892)b.vx*=-1;
+  if(b.y<8)b.vy*=-1;
+
+  if(b.y>470&&Math.abs(b.x-s.paddle)<75&&b.vy>0){
+    b.vy=-Math.abs(b.vy);
+    b.vx+=(b.x-s.paddle)*2;
+  }
+
+  for(const brick of s.bricks){
+    if(brick.alive&&b.x>brick.x&&b.x<brick.x+brick.w&&b.y>brick.y&&b.y<brick.y+brick.h){
+      brick.alive=false;b.vy*=-1;addScore(5);break;
+    }
+  }
+  if(b.y>530){
+    b.x=450;b.y=390;b.vx=220;b.vy=-250;
+  }
+}
+function drawBrick(){
+  for(const br of state.bricks)if(br.alive){
+    ctx.fillStyle=`hsl(${br.y/520*280+160},80%,60%)`;
+    ctx.fillRect(br.x,br.y,br.w,br.h);
+    ctx.strokeStyle="#ffffff55";ctx.strokeRect(br.x,br.y,br.w,br.h);
+  }
+  ctx.fillStyle="#42e8ff";
+  ctx.fillRect(state.paddle-65,480,130,13);
+  ctx.fillStyle="#ffe16a";
+  ctx.beginPath();ctx.arc(state.ball.x,state.ball.y,8,0,Math.PI*2);ctx.fill();
+}
+
+/* POINTER INPUT */
+function canvasPoint(e){
+  const r=canvas.getBoundingClientRect();
+  return{x:(e.clientX-r.left)*900/r.width,y:(e.clientY-r.top)*520/r.height};
+}
+canvas.addEventListener("pointerdown",e=>{
+  if(!current)return;
+  const p=canvasPoint(e);
+  pointer={...p,down:true};
+  canvas.setPointerCapture(e.pointerId);
+
+  if(current==="slime"){
+    const s=state;
+    s.grab=true;
+    s.grabOrigin={x:p.x,y:p.y};
+    s.pullX=p.x-s.cx;
+    s.pullY=p.y-s.cy;
+    s.velocityX=0;s.velocityY=0;
+    s.stretch=0;
+  }
+});
+canvas.addEventListener("pointermove",e=>{
+  if(!current)return;
+  const p=canvasPoint(e);
+  pointer={...p,down:pointer.down};
+
+  if(current==="ping")state.paddle=Math.max(60,Math.min(460,p.y));
+  if(current==="brick")state.paddle=Math.max(65,Math.min(835,p.x));
+
+  if(current==="slime"&&state.grab){
+    const s=state;
+    s.pullX=p.x-s.cx;
+    s.pullY=p.y-s.cy;
+    const dx=p.x-s.grabOrigin.x;
+    const dy=p.y-s.grabOrigin.y;
+    s.stretch=Math.min(240,Math.hypot(dx,dy));
+    if(s.stretch>1)s.grabAngle=Math.atan2(dy,dx);
+    s.squish=.7;
+  }
+});
+function releasePointer(){
+  pointer.down=false;
+  if(current==="slime"){
+    state.grab=false;
+    state.velocityX*=.4;
+    state.velocityY*=.4;
+  }
+}
+canvas.addEventListener("pointerup",releasePointer);
+canvas.addEventListener("pointercancel",releasePointer);
+window.addEventListener("blur",releasePointer);
+</script>
+</body>
+</html>
